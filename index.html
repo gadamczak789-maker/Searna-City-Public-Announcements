@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Searna City Public Announcements</title>
+
+<style>
+body {
+    background: black;
+    color: #00ff88;
+    font-family: "Courier New", monospace;
+    margin: 0;
+}
+.container { max-width:900px; margin:auto; padding:20px; }
+h1,h2,h3 { text-transform:uppercase; letter-spacing:2px; }
+.glitch { animation: glitch 2s infinite; }
+@keyframes glitch {
+    0% { text-shadow: 2px 0 red; }
+    25% { text-shadow: -2px 0 cyan; }
+    50% { text-shadow: 2px 2px lime; }
+    75% { text-shadow: -2px -2px magenta; }
+    100% { text-shadow:none; }
+}
+header { text-align:center; border-bottom:1px solid #00ff88; margin-bottom:20px; padding-bottom:15px; }
+header img { max-width:140px; }
+#network { font-size:0.85em; margin-top:10px; }
+textarea,input { width:100%; background:black; color:#00ff88; border:1px solid #00ff88; padding:8px; margin:8px 0; font-family:inherit; }
+button { background:black; color:#00ff88; border:1px solid #00ff88; padding:8px 14px; cursor:pointer; }
+button:hover { background:#00ff88; color:black; }
+.hidden { display:none; }
+.announcement { border:1px solid #00ff88; padding:15px; margin-bottom:25px; }
+.comment { border-left:2px solid #00ff88; padding-left:10px; margin-left:15px; font-size:0.85em; }
+footer { text-align:center; font-size:0.75em; opacity:0.6; margin-top:40px; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<header>
+    <img src="searna_seal.png" alt="Searna City Seal">
+    <h1 class="glitch" id="title"></h1>
+    <div id="network"></div>
+</header>
+
+<section id="loginSection">
+<h2>Administrator Login</h2>
+<input id="adminUser" placeholder="Username">
+<input id="adminPass" type="password" placeholder="Password">
+<button onclick="login()">Authenticate</button>
+</section>
+
+<section id="adminPanel" class="hidden">
+<h2>Broadcast Announcement</h2>
+<textarea id="newAnnouncement" placeholder="Enter city directive..."></textarea>
+<button onclick="postAnnouncement()">Transmit</button>
+<button onclick="logout()">Disconnect</button>
+</section>
+
+<hr>
+
+<section>
+<h2>Public Announcements</h2>
+<div id="announcements"></div>
+</section>
+
+<footer>Searna City Infrastructure Node ©</footer>
+
+<!-- ===== FIREBASE SDK v12+ ===== -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js";
+
+// ===== CONFIG =====
+const firebaseConfig = {
+    apiKey: "AIzaSyBqKZExAnlngsVZUIz7dXReySFvN_gmoI4",
+    authDomain: "searna-city-announcements.firebaseapp.com",
+    projectId: "searna-city-announcements",
+    storageBucket: "searna-city-announcements.firebasestorage.app",
+    messagingSenderId: "761579063447",
+    appId: "1:761579063447:web:fc1aa964432d38d54b81d2"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ===== UTILS =====
+function fakeIP() { return `${rand()}.${rand()}.${rand()}.${rand()}`; }
+function rand() { return Math.floor(Math.random()*255); }
+function typeText(el,text,speed=40){let i=0;(function t(){if(i<text.length){el.textContent+=text[i++];setTimeout(t,speed)}})();}
+
+// ===== NETWORK STATUS =====
+const states=["NETWORK: STABLE","NETWORK: ENCRYPTED","NETWORK: HIGH TRAFFIC","NETWORK: SURVEILLANCE ACTIVE"];
+let s=0;
+setInterval(()=>{document.getElementById("network").textContent=states[s++%states.length];},3000);
+
+// ===== ADMIN =====
+const ADMINS={"city-admin":"SEARNA-CORE","oversight":"WATCHFUL-EYE","netops":"GRID-ACCESS"};
+let admin=localStorage.getItem("admin");
+
+function login(){
+    const u=document.getElementById("adminUser").value.trim();
+    const p=document.getElementById("adminPass").value.trim();
+    if(ADMINS[u]===p){localStorage.setItem("admin",u); admin=u; init();}
+    else{alert("ACCESS DENIED");}
+}
+function logout(){localStorage.removeItem("admin"); admin=null; init();}
+
+// ===== ANNOUNCEMENTS =====
+async function postAnnouncement(){
+    const text=document.getElementById("newAnnouncement").value.trim();
+    if(!text) return;
+    await addDoc(collection(db,"announcements"),{
+        text:text,
+        timestamp:serverTimestamp(),
+        comments:[]
+    });
+    document.getElementById("newAnnouncement").value="";
+    render();
+}
+
+async function addComment(docId){
+    const name=document.getElementById(`name-${docId}`).value||"Anonymous";
+    const text=document.getElementById(`comment-${docId}`).value;
+    if(!text) return;
+    const docRef=doc(db,"announcements",docId);
+    await updateDoc(docRef,{comments:firebase.firestore.FieldValue.arrayUnion({name,text,ip:fakeIP()})});
+    render();
+}
+
+async function render(){
+    const div=document.getElementById("announcements");
+    div.innerHTML="";
+    const q=query(collection(db,"announcements"),orderBy("timestamp","desc"));
+    const snapshot=await getDocs(q);
+    const now=Date.now();
+    snapshot.forEach(async d=>{
+        const data=d.data();
+        const ts=data.timestamp?.toDate?.()?.getTime();
+        if(ts && now-ts>3600000){ await deleteDoc(d.ref); return; } // expire
+        const el=document.createElement("div");
+        el.className="announcement";
+        el.innerHTML=`
+            <h3>Announcement</h3>
+            <p>${data.text}</p>
+            <small>Expires in ${ts ? Math.ceil((3600000-(now-ts))/60000) : "1"} min</small>
+            <h4>Comments</h4>
+            ${data.comments?.map(c=>`<div class="comment"><strong>${c.name}</strong> [${c.ip}]<br>${c.text}</div>`).join("")||""}
+            <input id="name-${d.id}" placeholder="Screen name">
+            <textarea id="comment-${d.id}" placeholder="Public comment..."></textarea>
+            <button onclick="addComment('${d.id}')">Submit</button>
+        `;
+        div.appendChild(el);
+    });
+}
+
+// ===== INIT =====
+function init(){
+    document.getElementById("loginSection").classList.toggle("hidden",!!admin);
+    document.getElementById("adminPanel").classList.toggle("hidden",!admin);
+    render();
+}
+
+typeText(document.getElementById("title"),"Searna City Public Announcements");
+init();
+</script>
+
+</body>
+</html>
