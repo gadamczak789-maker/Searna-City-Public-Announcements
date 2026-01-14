@@ -47,14 +47,14 @@ footer { text-align:center; font-size:0.75em; opacity:0.6; margin-top:40px; }
 <h2>Administrator Login</h2>
 <input id="adminUser" placeholder="Username">
 <input id="adminPass" type="password" placeholder="Password">
-<button onclick="login()">Authenticate</button>
+<button id="loginBtn">Authenticate</button>
 </section>
 
 <section id="adminPanel" class="hidden">
 <h2>Broadcast Announcement</h2>
 <textarea id="newAnnouncement" placeholder="Enter city directive..."></textarea>
-<button onclick="postAnnouncement()">Transmit</button>
-<button onclick="logout()">Disconnect</button>
+<button id="postBtn">Transmit</button>
+<button id="logoutBtn">Disconnect</button>
 </section>
 
 <hr>
@@ -66,10 +66,9 @@ footer { text-align:center; font-size:0.75em; opacity:0.6; margin-top:40px; }
 
 <footer>Searna City Infrastructure Node ©</footer>
 
-<!-- ===== FIREBASE SDK v12+ ===== -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, serverTimestamp, deleteDoc } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, query, orderBy, serverTimestamp, deleteDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js";
 
 // ===== CONFIG =====
 const firebaseConfig = {
@@ -119,40 +118,80 @@ async function postAnnouncement(){
     render();
 }
 
-async function addComment(docId){
-    const name=document.getElementById(`name-${docId}`).value||"Anonymous";
-    const text=document.getElementById(`comment-${docId}`).value;
+// Add comments helper
+async function addCommentToDoc(docId,inputName,inputComment){
+    const name = inputName.value || "Anonymous";
+    const text = inputComment.value;
     if(!text) return;
-    const docRef=doc(db,"announcements",docId);
-    await updateDoc(docRef,{comments:firebase.firestore.FieldValue.arrayUnion({name,text,ip:fakeIP()})});
+    const docRef = doc(db,"announcements",docId);
+    await updateDoc(docRef,{comments: arrayUnion({name,text,ip:fakeIP()})});
     render();
 }
 
-async function render(){
-    const div=document.getElementById("announcements");
-    div.innerHTML="";
+// ===== RENDER ANNOUNCEMENTS =====
+let announcementsData = [];
+async function fetchAnnouncements(){
     const q=query(collection(db,"announcements"),orderBy("timestamp","desc"));
     const snapshot=await getDocs(q);
-    const now=Date.now();
-    snapshot.forEach(async d=>{
-        const data=d.data();
-        const ts=data.timestamp?.toDate?.()?.getTime();
-        if(ts && now-ts>3600000){ await deleteDoc(d.ref); return; } // expire
+    announcementsData = snapshot.docs.map(d => ({id:d.id,...d.data()}));
+}
+
+// Render announcements with live countdown
+async function render(){
+    await fetchAnnouncements();
+    const div=document.getElementById("announcements");
+    div.innerHTML="";
+
+    const now = Date.now();
+    announcementsData.forEach(d=>{
+        const ts = d.timestamp?.toDate?.()?.getTime();
+        // Skip expired posts
+        if(ts && now-ts>3600000) return;
+
         const el=document.createElement("div");
         el.className="announcement";
         el.innerHTML=`
             <h3>Announcement</h3>
-            <p>${data.text}</p>
-            <small>Expires in ${ts ? Math.ceil((3600000-(now-ts))/60000) : "1"} min</small>
+            <p>${d.text}</p>
+            <small class="expires">Expires in calculating...</small>
             <h4>Comments</h4>
-            ${data.comments?.map(c=>`<div class="comment"><strong>${c.name}</strong> [${c.ip}]<br>${c.text}</div>`).join("")||""}
-            <input id="name-${d.id}" placeholder="Screen name">
-            <textarea id="comment-${d.id}" placeholder="Public comment..."></textarea>
-            <button onclick="addComment('${d.id}')">Submit</button>
+            ${d.comments?.map(c=>`<div class="comment"><strong>${c.name}</strong> [${c.ip}]<br>${c.text}</div>`).join("")||""}
+            <input placeholder="Screen name">
+            <textarea placeholder="Public comment..."></textarea>
+            <button>Submit</button>
         `;
         div.appendChild(el);
+
+        // Comment button event
+        const [inputName,inputComment,button] = el.querySelectorAll("input,textarea,button");
+        button.addEventListener("click",()=>addCommentToDoc(d.id,inputName,inputComment));
+
+        // Live countdown for expiration
+        const expiresEl = el.querySelector(".expires");
+        function updateCountdown(){
+            const now = Date.now();
+            const minsLeft = ts ? Math.max(Math.ceil((3600000-(now-ts))/60000),0) : 1;
+            expiresEl.textContent = `Expires in ${minsLeft} min`;
+        }
+        updateCountdown();
+        setInterval(updateCountdown,1000);
     });
 }
+
+// ===== AUTOMATIC CLEANUP =====
+async function cleanupExpired(){
+    const now = Date.now();
+    announcementsData.forEach(async d=>{
+        const ts = d.timestamp?.toDate?.()?.getTime();
+        if(ts && now-ts>3600000){
+            await deleteDoc(doc(db,"announcements",d.id));
+        }
+    });
+    render();
+}
+
+// Run cleanup every 60 seconds
+setInterval(cleanupExpired, 60000);
 
 // ===== INIT =====
 function init(){
@@ -161,15 +200,14 @@ function init(){
     render();
 }
 
-// ===== EXPOSE FUNCTIONS TO GLOBAL SCOPE =====
-window.login = login;
-window.logout = logout;
-window.postAnnouncement = postAnnouncement;
-window.addComment = addComment;
+// ===== ATTACH BUTTON EVENTS =====
+document.getElementById("loginBtn").addEventListener("click",login);
+document.getElementById("logoutBtn").addEventListener("click",logout);
+document.getElementById("postBtn").addEventListener("click",postAnnouncement);
 
 typeText(document.getElementById("title"),"Searna City Public Announcements");
 init();
-</script>
 
+</script>
 </body>
 </html>
