@@ -81,7 +81,6 @@ const firebaseConfig = {
     appId: "1:761579063447:web:fc1aa964432d38d54b81d2"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
@@ -153,11 +152,6 @@ async function render(){
         `;
         div.appendChild(el);
     });
-window.login = login;
-window.logout = logout;
-window.postAnnouncement = postAnnouncement;
-window.addComment = addComment;
-    
 }
 
 // ===== INIT =====
@@ -167,10 +161,15 @@ function init(){
     render();
 }
 
+// ===== EXPOSE FUNCTIONS TO GLOBAL SCOPE =====
+window.login = login;
+window.logout = logout;
+window.postAnnouncement = postAnnouncement;
+window.addComment = addComment;
+
 typeText(document.getElementById("title"),"Searna City Public Announcements");
 init();
 </script>
 
 </body>
 </html>
-
